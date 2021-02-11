@@ -1,0 +1,129 @@
+/*
+  
+   Multicore 2 / Multicore 2+
+  
+   Copyright (c) 2017-2020 - Victor Trucco
+
+  
+   All rights reserved
+  
+   Redistribution and use in source and synthezised forms, with or without
+   modification, are permitted provided that the following conditions are met:
+  
+   Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+  
+   Redistributions in synthesized form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+  
+   Neither the name of the author nor the names of other contributors may
+   be used to endorse or promote products derived from this software without
+   specific prior written permission.
+  
+   THIS CODE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+   AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
+   THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+   PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE AUTHOR OR CONTRIBUTORS BE
+   LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+   CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+   SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+   INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+   CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+   POSSIBILITY OF SUCH DAMAGE.
+  
+   You are responsible for any legal issues arising from your use of this code.
+  
+*/module test(
+    input                 rst, 
+    input                 clk,
+    input                 a0,
+    input                 wr_n,
+    input          [ 7:0] din,
+    output signed  [15:0] xleft,
+    output signed  [15:0] xright,
+    output                sample,
+    output         [ 7:0] dout
+);
+
+wire      wr_n, cen_fm, cen_fm2;
+wire      a0;
+wire [7:0] din, dout;
+
+jtframe_cen3p57 u_cen(
+    .clk        ( clk       ),       // 48 MHz
+    .cen_3p57   ( cen_fm    ),
+    .cen_1p78   ( cen_fm2   )
+);
+
+wire    ct1, ct2, irq_n;
+
+ jt51 uut(
+    .rst        (  rst      ),    // reset
+    .clk        (  clk      ),    // main clock
+    .cen        (  cen_fm   ),    // clock enable
+    .cen_p1     (  cen_fm2  ), // clock enable at half the speed
+    .cs_n       (  1'b0     ),   // chip select
+    .wr_n       (  wr_n     ),   // write
+    .a0         (  a0       ),
+    .din        (  din      ), // data in
+    .dout       (  dout     ), // data out
+    // peripheral control
+    .ct1        ( ct1       ),
+    .ct2        ( ct2       ),
+    .irq_n      ( irq_n     ),  // I do not synchronize this signal
+    // Low resolution output (same as real chip)
+    .sample     ( sample    ), // marks new output sample
+    .left       (           ),
+    .right      (           ),
+    // Full resolution output
+    .xleft      ( xleft     ),
+    .xright     ( xright    ),
+    // unsigned outputs for sigma delta converters, full resolution
+    .dacleft    (           ),
+    .dacright   (           )
+);
+
+endmodule
+
+
+module jtframe_cen3p57(
+    input      clk,       // 48 MHz
+    output reg cen_3p57,
+    output reg cen_1p78
+);
+
+wire [10:0] step=11'd105;
+wire [10:0] lim =11'd1408;
+wire [10:0] absmax = lim+step;
+
+reg  [10:0] cencnt=11'd0;
+reg  [10:0] next;
+reg  [10:0] next2;
+
+always @(*) begin
+    next  = cencnt+11'd105;
+    next2 = next-lim;
+end
+
+reg alt=1'b0;
+
+always @(posedge clk) begin
+    cen_3p57 <= 1'b0;
+    cen_1p78 <= 1'b0;
+    if( cencnt >= absmax ) begin
+        // something went wrong: restart
+        cencnt <= 11'd0;
+        alt    <= 1'b0;
+    end else
+    if( next >= lim ) begin
+        cencnt <= next2;
+        cen_3p57 <= 1'b1;
+        alt    <= ~alt;
+        if( alt ) cen_1p78 <= 1'b1;
+    end else begin
+        cencnt <= next;
+    end
+end
+endmodule
